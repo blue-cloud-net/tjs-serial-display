@@ -86,6 +86,25 @@ func (spm *SerialPortManager) Close() error {
 	return nil
 }
 
+func (spm *SerialPortManager) SetBaudRate(baudRate int) error {
+	spm.BaudRate = baudRate
+
+	if spm.IsOpen() {
+
+		err := spm.port.SetMode(&serial.Mode{
+			BaudRate: baudRate,
+			Parity:   spm.Parity,
+			DataBits: spm.DataBits,
+			StopBits: spm.StopBits,
+		})
+		if err != nil {
+			return errors.New("failed to set new baud rate on serial port")
+		}
+	}
+
+	return nil
+}
+
 func (spm *SerialPortManager) SetReadTimeout(timeout time.Duration) error {
 	spm.Timeout = timeout
 

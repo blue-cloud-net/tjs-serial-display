@@ -26,7 +26,7 @@ type DisplayClient interface {
 	// 执行原始 TJC 命令
 	ExecuteCommand(cmd string) error
 	// 升级面板程序
-	Upgrade(programPath string, progressCallback models.UpgradeProgressCallback) error
+	Upgrade(programPath string, baudRate int, progressCallback models.UpgradeProgressCallback) error
 }
 
 func CreateClient(portName string, baudRate int) DisplayClient {

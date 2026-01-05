@@ -97,17 +97,16 @@ func (c *TjcDisplayClient) GetDeviceInfo() (*models.DeviceInfo, error) {
 		return nil, err
 	}
 
-	resultStr := string(result)
+	return parseDeviceInfo(string(result))
+}
+
+// parseDeviceInfo 解析设备信息字符串
+func parseDeviceInfo(data string) (*models.DeviceInfo, error) {
 	// 以TJC4024T032_011R设备为例，设备返回如下8组数据(每组数据逗号隔开):
 	// comok 1,101-0,TJC4024T032_011R,52,61488,D264B8204F0E1828,16777216
 	// 格式说明:
 	// comok [屏幕类型],[设备地址],[设备型号],[固件版本号],[主控芯片编号],[设备唯一编号],[Flash存储大小]
 
-	return parseDeviceInfo(resultStr)
-}
-
-// parseDeviceInfo 解析设备信息字符串
-func parseDeviceInfo(data string) (*models.DeviceInfo, error) {
 	// 去掉开头的 "comok " 或其他前缀
 	data = strings.TrimSpace(data)
 	if strings.HasPrefix(data, "comok ") {
@@ -255,7 +254,11 @@ func (c *TjcDisplayClient) ExecuteCommand(cmd string) error {
 }
 
 // Upgrade 升级面板程序
-func (c *TjcDisplayClient) Upgrade(programPath string, progressCallback models.UpgradeProgressCallback) error {
+func (c *TjcDisplayClient) Upgrade(programPath string, baudRate int, progressCallback models.UpgradeProgressCallback) error {
+	if baudRate == 0 {
+		baudRate = 921600
+	}
+
 	err := c.connect()
 	if err != nil {
 		return err
@@ -274,34 +277,31 @@ func (c *TjcDisplayClient) Upgrade(programPath string, progressCallback models.U
 
 	fileSize := fileInfo.Size()
 
-	err = c.serialManager.Write([]byte("\x00"))
-	if err != nil {
-		return fmt.Errorf("failed to send upgrade command: %w", err)
-	}
-
-	cmd := []byte(fmt.Sprintf("whmi-wri %d,%d,0", fileSize, c.BaudRate))
+	// 发送 whmi-wri 命令（使用当前连接的波特率）
+	cmd := []byte(fmt.Sprintf("whmi-wri %d,%d,0", fileSize, baudRate))
 	cmd = append(cmd, EndSymbol...)
 	err = c.serialManager.Write(cmd)
 	if err != nil {
 		return fmt.Errorf("failed to initiate upgrade: %w", err)
 	}
 
-	err = c.serialManager.Flush()
-	if err != nil {
-		return fmt.Errorf("failed to flush upgrade command: %w", err)
-	}
-
 	// 等待350ms，确保设备已准备好
 	time.Sleep(350 * time.Millisecond)
 
-	// 读取响应，等待设备准备好接收数据
+	// 切换到下载波特率
+	err = c.serialManager.SetBaudRate(baudRate)
+	if err != nil {
+		return fmt.Errorf("failed to set new baud rate: %w", err)
+	}
+
+	// 读取响应，等待设备准备好接收数据（0x05 = ENQ）
 	resp, err := c.serialManager.ReadExactly(1)
 	if err != nil {
 		return fmt.Errorf("failed to read upgrade response: %w", err)
 	}
 
 	if len(resp) != 1 || resp[0] != 0x05 {
-		return fmt.Errorf("unexpected upgrade response: %v", resp)
+		return fmt.Errorf("unexpected upgrade response: got 0x%02X, expected 0x05", resp[0])
 	}
 
 	// 初始化进度信息
@@ -332,24 +332,10 @@ func (c *TjcDisplayClient) Upgrade(programPath string, progressCallback models.U
 		}
 
 		if n > 0 {
+			// 写入数据块
 			err = c.serialManager.Write(buf[:n])
 			if err != nil {
-				return fmt.Errorf("failed to write program data: %w", err)
-			}
-
-			err = c.serialManager.Flush()
-			if err != nil {
-				return fmt.Errorf("failed to flush program data: %w", err)
-			}
-
-			// 读取响应，等待设备准备好接收数据
-			resp, err := c.serialManager.ReadExactly(1)
-			if err != nil {
-				return fmt.Errorf("failed to read upgrade response: %w", err)
-			}
-
-			if len(resp) != 1 || resp[0] != 0x05 {
-				return fmt.Errorf("unexpected upgrade response: %v", resp)
+				return fmt.Errorf("failed to write program data at byte %d: %w", totalSent, err)
 			}
 
 			// 更新已发送字节数
@@ -379,6 +365,16 @@ func (c *TjcDisplayClient) Upgrade(programPath string, progressCallback models.U
 					Remaining:  remaining,
 				})
 			}
+
+			// 等待设备响应准备好接收下一块数据（0x05 = ENQ）
+			resp, err := c.serialManager.ReadExactly(1)
+			if err != nil {
+				return fmt.Errorf("failed to read upgrade response at byte %d: %w", totalSent, err)
+			}
+
+			if len(resp) != 1 || resp[0] != 0x05 {
+				return fmt.Errorf("unexpected upgrade response: got 0x%02X, expected 0x05", resp[0])
+			}
 		}
 	}
 
@@ -400,7 +396,8 @@ func (c *TjcDisplayClient) Upgrade(programPath string, progressCallback models.U
 		})
 	}
 
-	return nil
+	// 重连串口
+	return c.serialManager.SetBaudRate(c.BaudRate)
 }
 
 // Open 开启串口连接
