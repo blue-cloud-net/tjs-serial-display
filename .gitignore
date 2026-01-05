@@ -31,4 +31,13 @@ go.work.sum
 # .idea/
 # .vscode/
 
+# Build output directories
 release/
+build/
+
+# CMake files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
