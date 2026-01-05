@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/blue-cloud-net/tjc-serial-display/internal/serial"
+	"github.com/blue-cloud-net/tjc-serial-display/pkg/consts"
 	"github.com/blue-cloud-net/tjc-serial-display/pkg/models"
 )
 
@@ -49,7 +50,7 @@ func (c *TjcDisplayClient) connect() error {
 
 	// 检查波特率是否支持
 	baudrateSupported := false
-	for _, br := range SupportedBaudrate {
+	for _, br := range consts.SupportedBaudrate {
 		if c.BaudRate == br {
 			baudrateSupported = true
 			break
@@ -419,7 +420,7 @@ func (c *TjcDisplayClient) sendCommand(cmd string, appendReturnEndBytes bool) er
 
 	cmdBytes := append([]byte(cmd), EndSymbol...)
 	if appendReturnEndBytes {
-		cmdBytes = append(append([]byte("printh "), CodeStringData), EndSymbol...)
+		cmdBytes = append(append([]byte("printh "), consts.CodeStringData), EndSymbol...)
 	}
 
 	err := c.serialManager.Write(cmdBytes)
@@ -458,7 +459,7 @@ func (c *TjcDisplayClient) sendCommandAndWaitResult(cmd string, startSymbol bool
 
 	cmdBytes := append([]byte(cmd), EndSymbol...)
 	if startSymbol {
-		cmdBytes = append(append([]byte("printh "), CodeStringData), EndSymbol...)
+		cmdBytes = append(append([]byte("printh "), consts.CodeStringData), EndSymbol...)
 	}
 
 	err := c.serialManager.Write(cmdBytes)
@@ -504,44 +505,44 @@ func parseResponse(data []byte) (*Response, error) {
 
 	// 根据第一个字节判断响应类型
 	switch data[0] {
-	case CodeSuccess:
+	case consts.CodeSuccess:
 		resp.Type = ResponseTypeSuccess
-	case CodeInvalidInstruction,
-		CodeInvalidComponentID,
-		CodeInvalidPageID,
-		CodeInvalidPictureID,
-		CodeInvalidFontID,
-		CodeFileOperationFailed,
-		CodeCRCCheckFailed,
-		CodeInvalidBaudrate,
-		CodeInvalidCurveID,
-		CodeInvalidVariableName,
-		CodeInvalidVariableOp,
-		CodeAssignmentFailed,
-		CodeEEPROMFailed,
-		CodeInvalidParamCount,
-		CodeIOFailed,
-		CodeEscapeCharError,
-		CodeVariableNameTooLong,
-		CodeSerialBufferOverflow:
+	case consts.CodeInvalidInstruction,
+		consts.CodeInvalidComponentID,
+		consts.CodeInvalidPageID,
+		consts.CodeInvalidPictureID,
+		consts.CodeInvalidFontID,
+		consts.CodeFileOperationFailed,
+		consts.CodeCRCCheckFailed,
+		consts.CodeInvalidBaudrate,
+		consts.CodeInvalidCurveID,
+		consts.CodeInvalidVariableName,
+		consts.CodeInvalidVariableOp,
+		consts.CodeAssignmentFailed,
+		consts.CodeEEPROMFailed,
+		consts.CodeInvalidParamCount,
+		consts.CodeIOFailed,
+		consts.CodeEscapeCharError,
+		consts.CodeVariableNameTooLong,
+		consts.CodeSerialBufferOverflow:
 		resp.Type = ResponseTypeError
-	case CodeTouchEvent,
-		CodePageID,
-		CodeTouchCoordinate,
-		CodeSleepTouch,
-		CodeAutoSleep,
-		CodeAutoWake,
-		CodeStartupSuccess,
-		CodeStartSDUpgrade,
-		CodeTransparentReady,
-		CodeTransparentDone:
+	case consts.CodeTouchEvent,
+		consts.CodePageID,
+		consts.CodeTouchCoordinate,
+		consts.CodeSleepTouch,
+		consts.CodeAutoSleep,
+		consts.CodeAutoWake,
+		consts.CodeStartupSuccess,
+		consts.CodeStartSDUpgrade,
+		consts.CodeTransparentReady,
+		consts.CodeTransparentDone:
 		resp.Type = ResponseTypeEvent
 		// 提取事件数据（去掉第一个字节）
 		if len(data) > 1 {
 			resp.Data = data[1:]
 		}
-	case CodeStringData,
-		CodeNumberData:
+	case consts.CodeStringData,
+		consts.CodeNumberData:
 		resp.Type = ResponseTypeData
 		// 提取数据（去掉第一个字节和结束符）
 		if len(data) > 1 {

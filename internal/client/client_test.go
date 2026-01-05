@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/blue-cloud-net/tjc-serial-display/internal/serial"
+	"github.com/blue-cloud-net/tjc-serial-display/pkg/consts"
 )
 
 // TestParseResponse_Success 测试解析成功响应
@@ -18,7 +19,7 @@ func TestParseResponse_Success(t *testing.T) {
 	if resp.Type != ResponseTypeSuccess {
 		t.Errorf("Expected ResponseTypeSuccess, got %v", resp.Type)
 	}
-	if resp.Code != CodeSuccess {
+	if resp.Code != consts.CodeSuccess {
 		t.Errorf("Expected code 0x01, got 0x%02X", resp.Code)
 	}
 }
@@ -30,10 +31,10 @@ func TestParseResponse_Error(t *testing.T) {
 		data []byte
 		code byte
 	}{
-		{"InvalidInstruction", []byte{0x00, 0xFF, 0xFF, 0xFF}, CodeInvalidInstruction},
-		{"InvalidComponentID", []byte{0x02, 0xFF, 0xFF, 0xFF}, CodeInvalidComponentID},
-		{"InvalidPageID", []byte{0x03, 0xFF, 0xFF, 0xFF}, CodeInvalidPageID},
-		{"InvalidBaudrate", []byte{0x11, 0xFF, 0xFF, 0xFF}, CodeInvalidBaudrate},
+		{"InvalidInstruction", []byte{0x00, 0xFF, 0xFF, 0xFF}, consts.CodeInvalidInstruction},
+		{"InvalidComponentID", []byte{0x02, 0xFF, 0xFF, 0xFF}, consts.CodeInvalidComponentID},
+		{"InvalidPageID", []byte{0x03, 0xFF, 0xFF, 0xFF}, consts.CodeInvalidPageID},
+		{"InvalidBaudrate", []byte{0x11, 0xFF, 0xFF, 0xFF}, consts.CodeInvalidBaudrate},
 	}
 
 	for _, tc := range testCases {
@@ -62,9 +63,9 @@ func TestParseResponse_Event(t *testing.T) {
 		dataLen  int
 		expected []byte
 	}{
-		{"TouchEvent", []byte{0x65, 0x01, 0x02, 0xFF, 0xFF, 0xFF}, CodeTouchEvent, 2, []byte{0x01, 0x02}},
-		{"PageID", []byte{0x66, 0x05, 0xFF, 0xFF, 0xFF}, CodePageID, 1, []byte{0x05}},
-		{"StartupSuccess", []byte{0x88, 0xFF, 0xFF, 0xFF}, CodeStartupSuccess, 0, nil},
+		{"TouchEvent", []byte{0x65, 0x01, 0x02, 0xFF, 0xFF, 0xFF}, consts.CodeTouchEvent, 2, []byte{0x01, 0x02}},
+		{"PageID", []byte{0x66, 0x05, 0xFF, 0xFF, 0xFF}, consts.CodePageID, 1, []byte{0x05}},
+		{"StartupSuccess", []byte{0x88, 0xFF, 0xFF, 0xFF}, consts.CodeStartupSuccess, 0, nil},
 	}
 
 	for _, tc := range testCases {
@@ -95,8 +96,8 @@ func TestParseResponse_Data(t *testing.T) {
 		code     byte
 		expected []byte
 	}{
-		{"StringData", []byte{0x70, 'H', 'e', 'l', 'l', 'o', 0xFF, 0xFF, 0xFF}, CodeStringData, []byte{'H', 'e', 'l', 'l', 'o'}},
-		{"NumberData", []byte{0x71, 0x01, 0x02, 0x03, 0x04, 0xFF, 0xFF, 0xFF}, CodeNumberData, []byte{0x01, 0x02, 0x03, 0x04}},
+		{"StringData", []byte{0x70, 'H', 'e', 'l', 'l', 'o', 0xFF, 0xFF, 0xFF}, consts.CodeStringData, []byte{'H', 'e', 'l', 'l', 'o'}},
+		{"NumberData", []byte{0x71, 0x01, 0x02, 0x03, 0x04, 0xFF, 0xFF, 0xFF}, consts.CodeNumberData, []byte{0x01, 0x02, 0x03, 0x04}},
 	}
 
 	for _, tc := range testCases {
@@ -162,7 +163,7 @@ func TestResponse_ToError(t *testing.T) {
 	// 测试错误响应
 	errorResp := &Response{
 		Type: ResponseTypeError,
-		Code: CodeInvalidInstruction,
+		Code: consts.CodeInvalidInstruction,
 	}
 	err := errorResp.toError()
 	if err == nil {
@@ -172,14 +173,14 @@ func TestResponse_ToError(t *testing.T) {
 	if !ok {
 		t.Error("Expected TjcError type")
 	}
-	if tjcErr.Code != CodeInvalidInstruction {
-		t.Errorf("Expected code 0x%02X, got 0x%02X", CodeInvalidInstruction, tjcErr.Code)
+	if tjcErr.Code != consts.CodeInvalidInstruction {
+		t.Errorf("Expected code 0x%02X, got 0x%02X", consts.CodeInvalidInstruction, tjcErr.Code)
 	}
 
 	// 测试成功响应
 	successResp := &Response{
 		Type: ResponseTypeSuccess,
-		Code: CodeSuccess,
+		Code: consts.CodeSuccess,
 	}
 	err = successResp.toError()
 	if err != nil {

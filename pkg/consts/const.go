@@ -1,4 +1,4 @@
-package client
+package consts
 
 // TJC串口屏支持波特率
 var SupportedBaudrate = []int{2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 256000, 512000, 921600}
