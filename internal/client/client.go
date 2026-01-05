@@ -241,8 +241,18 @@ func (c *TjcDisplayClient) Show(target string) error {
 	return c.sendCommand(fmt.Sprintf("vis %s,1", target), false)
 }
 
+// ExecuteCommand 执行原始 TJC 命令
+func (c *TjcDisplayClient) ExecuteCommand(cmd string) error {
+	err := c.connect()
+	if err != nil {
+		return err
+	}
+
+	return c.sendCommand(cmd, false)
+}
+
 // Upgrade 升级面板程序
-func (c *TjcDisplayClient) Upgrade(programPath string, progressCallback UpgradeProgressCallback) error {
+func (c *TjcDisplayClient) Upgrade(programPath string, progressCallback models.UpgradeProgressCallback) error {
 	err := c.connect()
 	if err != nil {
 		return err
@@ -297,7 +307,7 @@ func (c *TjcDisplayClient) Upgrade(programPath string, progressCallback UpgradeP
 
 	// 初始进度回调
 	if progressCallback != nil {
-		progressCallback(&UpgradeProgress{
+		progressCallback(&models.UpgradeProgress{
 			Current:    0,
 			Total:      fileSize,
 			Percentage: 0.0,
@@ -357,7 +367,7 @@ func (c *TjcDisplayClient) Upgrade(programPath string, progressCallback UpgradeP
 					}
 				}
 
-				progressCallback(&UpgradeProgress{
+				progressCallback(&models.UpgradeProgress{
 					Current:    totalSent,
 					Total:      fileSize,
 					Percentage: percentage,
@@ -377,7 +387,7 @@ func (c *TjcDisplayClient) Upgrade(programPath string, progressCallback UpgradeP
 			speed = int64(float64(fileSize) / elapsed.Seconds())
 		}
 
-		progressCallback(&UpgradeProgress{
+		progressCallback(&models.UpgradeProgress{
 			Current:    fileSize,
 			Total:      fileSize,
 			Percentage: 100.0,
@@ -528,14 +538,14 @@ func parseResponse(data []byte) (*Response, error) {
 		resp.Type = ResponseTypeEvent
 		// 提取事件数据（去掉第一个字节）
 		if len(data) > 1 {
-			resp.Data = data[1:len(data)]
+			resp.Data = data[1:]
 		}
 	case CodeStringData,
 		CodeNumberData:
 		resp.Type = ResponseTypeData
 		// 提取数据（去掉第一个字节和结束符）
 		if len(data) > 1 {
-			resp.Data = data[1:len(data)]
+			resp.Data = data[1:]
 		}
 	default:
 		// 未知响应码，可能是数据返回
