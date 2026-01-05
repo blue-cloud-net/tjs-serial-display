@@ -26,6 +26,7 @@ var (
 type TjcDisplayClient struct {
 	PortName      string
 	BaudRate      int
+	Timeout       time.Duration
 	serialManager *serial.SerialPortManager
 	optLock       sync.Mutex
 }
@@ -64,6 +65,7 @@ func (c *TjcDisplayClient) connect() error {
 		manager := &serial.SerialPortManager{
 			PortName: c.PortName,
 			BaudRate: c.BaudRate,
+			Timeout:  c.Timeout,
 		}
 
 		err := manager.Open()

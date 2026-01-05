@@ -15,6 +15,7 @@ type SerialPortManager struct {
 	Parity      serial.Parity
 	DataBits    int
 	StopBits    serial.StopBits
+	Timeout     time.Duration
 	BytesToRead int
 	port        serial.Port
 }
@@ -36,6 +37,9 @@ func (spm *SerialPortManager) Open() error {
 	}
 	if spm.StopBits == 0 {
 		spm.StopBits = serial.OneStopBit
+	}
+	if spm.Timeout == 0 {
+		spm.Timeout = 2 * time.Second
 	}
 	// 根据波特率动态设置默认BytesToRead（约1帧数据，常用为波特率/10，最小64，最大4096）
 	if spm.BytesToRead == 0 {
@@ -60,8 +64,7 @@ func (spm *SerialPortManager) Open() error {
 		return err
 	}
 
-	// 设置读取超时为3秒
-	port.SetReadTimeout(3 * time.Second)
+	port.SetReadTimeout(spm.Timeout)
 
 	spm.port = port
 	return nil
@@ -81,6 +84,12 @@ func (spm *SerialPortManager) Close() error {
 	}
 
 	return nil
+}
+
+func (spm *SerialPortManager) SetReadTimeout(timeout time.Duration) error {
+	spm.Timeout = timeout
+
+	return spm.port.SetReadTimeout(timeout)
 }
 
 // Read 读取一次可用数据（最多 bytesToRead 字节）
