@@ -2,9 +2,12 @@ package client
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/blue-cloud-net/tjc-serial-display/internal/serial"
 	"github.com/blue-cloud-net/tjc-serial-display/pkg/models"
@@ -27,6 +30,35 @@ type TjcDisplayClient struct {
 }
 
 func (c *TjcDisplayClient) connect() error {
+	ports, err := serial.ListPorts()
+	if err != nil {
+		return err
+	}
+
+	// 检查是否存在指定的串口
+	found := false
+	for _, port := range ports {
+		if port == c.PortName {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("serial port %s not found", c.PortName)
+	}
+
+	// 检查波特率是否支持
+	baudrateSupported := false
+	for _, br := range SupportedBaudrate {
+		if c.BaudRate == br {
+			baudrateSupported = true
+			break
+		}
+	}
+	if !baudrateSupported {
+		return fmt.Errorf("baud rate %d is not supported", c.BaudRate)
+	}
+
 	if c.serialManager == nil {
 		manager := &serial.SerialPortManager{
 			PortName: c.PortName,
@@ -125,6 +157,11 @@ func parseDeviceInfo(data string) (*models.DeviceInfo, error) {
 
 // GetPage 获取当前页面
 func (c *TjcDisplayClient) GetPage() (int, error) {
+	err := c.connect()
+	if err != nil {
+		return 0, err
+	}
+
 	result, err := c.sendCommandAndWaitResult("sendme", false)
 	if err != nil {
 		return 0, err
@@ -141,12 +178,21 @@ func (c *TjcDisplayClient) GetPage() (int, error) {
 
 // JumpPage 跳转到指定页面
 func (c *TjcDisplayClient) JumpPage(page int) error {
-	cmd := []byte(fmt.Sprintf("page %d", page))
-	return c.serialManager.Write(cmd)
+	err := c.connect()
+	if err != nil {
+		return err
+	}
+
+	return c.sendCommand(fmt.Sprintf("page %d", page), false)
 }
 
 // Prints 打印目标的值或者输入内容
 func (c *TjcDisplayClient) Prints(target string) (string, error) {
+	err := c.connect()
+	if err != nil {
+		return "", err
+	}
+
 	result, err := c.sendCommandAndWaitResult(fmt.Sprintf("print %s", target), true)
 	if err != nil {
 		return "", err
@@ -157,28 +203,199 @@ func (c *TjcDisplayClient) Prints(target string) (string, error) {
 
 // ClickUp 模拟弹起目标按钮
 func (c *TjcDisplayClient) ClickUp(target string) error {
-	cmd := []byte(fmt.Sprintf("click %s,0", target))
-	return c.serialManager.Write(cmd)
+	err := c.connect()
+	if err != nil {
+		return nil
+	}
+
+	return c.sendCommand(fmt.Sprintf("click %s,0", target), false)
 }
 
 // ClickDown 模拟按下目标按钮
 func (c *TjcDisplayClient) ClickDown(target string) error {
-	cmd := []byte(fmt.Sprintf("click %s,1", target))
-	return c.serialManager.Write(cmd)
+	err := c.connect()
+	if err != nil {
+		return err
+	}
+
+	return c.sendCommand(fmt.Sprintf("click %s,1", target), false)
 }
 
 // Hide 隐藏指定目标
 func (c *TjcDisplayClient) Hide(target string) error {
-	cmd := []byte(fmt.Sprintf("vis %s,0", target))
-	return c.serialManager.Write(cmd)
+	err := c.connect()
+	if err != nil {
+		return err
+	}
+
+	return c.sendCommand(fmt.Sprintf("vis %s,0", target), false)
 }
 
 // Show 显示指定目标
 func (c *TjcDisplayClient) Show(target string) error {
-	cmd := []byte(fmt.Sprintf("vis %s,1", target))
-	return c.serialManager.Write(cmd)
+	err := c.connect()
+	if err != nil {
+		return err
+	}
+
+	return c.sendCommand(fmt.Sprintf("vis %s,1", target), false)
 }
 
+// Upgrade 升级面板程序
+func (c *TjcDisplayClient) Upgrade(programPath string, progressCallback UpgradeProgressCallback) error {
+	err := c.connect()
+	if err != nil {
+		return err
+	}
+
+	f, err := os.Open(programPath)
+	if err != nil {
+		return fmt.Errorf("failed to open program file: %w", err)
+	}
+	defer f.Close()
+
+	fileInfo, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to get file info: %w", err)
+	}
+
+	fileSize := fileInfo.Size()
+
+	err = c.serialManager.Write([]byte("\x00"))
+	if err != nil {
+		return fmt.Errorf("failed to send upgrade command: %w", err)
+	}
+
+	cmd := []byte(fmt.Sprintf("whmi-wri %d,%d,0", fileSize, c.BaudRate))
+	cmd = append(cmd, EndSymbol...)
+	err = c.serialManager.Write(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to initiate upgrade: %w", err)
+	}
+
+	err = c.serialManager.Flush()
+	if err != nil {
+		return fmt.Errorf("failed to flush upgrade command: %w", err)
+	}
+
+	// 等待350ms，确保设备已准备好
+	time.Sleep(350 * time.Millisecond)
+
+	// 读取响应，等待设备准备好接收数据
+	resp, err := c.serialManager.ReadExactly(1)
+	if err != nil {
+		return fmt.Errorf("failed to read upgrade response: %w", err)
+	}
+
+	if len(resp) != 1 || resp[0] != 0x05 {
+		return fmt.Errorf("unexpected upgrade response: %v", resp)
+	}
+
+	// 初始化进度信息
+	var totalSent int64 = 0
+	startTime := time.Now()
+
+	// 初始进度回调
+	if progressCallback != nil {
+		progressCallback(&UpgradeProgress{
+			Current:    0,
+			Total:      fileSize,
+			Percentage: 0.0,
+			Speed:      0,
+			Elapsed:    0,
+			Remaining:  0,
+		})
+	}
+
+	buf := make([]byte, 4096)
+	for {
+		n, err := f.Read(buf)
+		if err != nil {
+			if err == io.EOF {
+				break
+			} else {
+				return fmt.Errorf("failed to read program file: %w", err)
+			}
+		}
+
+		if n > 0 {
+			err = c.serialManager.Write(buf[:n])
+			if err != nil {
+				return fmt.Errorf("failed to write program data: %w", err)
+			}
+
+			err = c.serialManager.Flush()
+			if err != nil {
+				return fmt.Errorf("failed to flush program data: %w", err)
+			}
+
+			// 读取响应，等待设备准备好接收数据
+			resp, err := c.serialManager.ReadExactly(1)
+			if err != nil {
+				return fmt.Errorf("failed to read upgrade response: %w", err)
+			}
+
+			if len(resp) != 1 || resp[0] != 0x05 {
+				return fmt.Errorf("unexpected upgrade response: %v", resp)
+			}
+
+			// 更新已发送字节数
+			totalSent += int64(n)
+
+			// 计算进度信息并调用回调
+			if progressCallback != nil {
+				elapsed := time.Since(startTime)
+				percentage := float64(totalSent) / float64(fileSize) * 100
+
+				var speed int64
+				var remaining time.Duration
+				if elapsed.Seconds() > 0 {
+					speed = int64(float64(totalSent) / elapsed.Seconds())
+					if speed > 0 {
+						remainingBytes := fileSize - totalSent
+						remaining = time.Duration(float64(remainingBytes)/float64(speed)) * time.Second
+					}
+				}
+
+				progressCallback(&UpgradeProgress{
+					Current:    totalSent,
+					Total:      fileSize,
+					Percentage: percentage,
+					Speed:      speed,
+					Elapsed:    elapsed,
+					Remaining:  remaining,
+				})
+			}
+		}
+	}
+
+	// 完成回调
+	if progressCallback != nil {
+		elapsed := time.Since(startTime)
+		var speed int64
+		if elapsed.Seconds() > 0 {
+			speed = int64(float64(fileSize) / elapsed.Seconds())
+		}
+
+		progressCallback(&UpgradeProgress{
+			Current:    fileSize,
+			Total:      fileSize,
+			Percentage: 100.0,
+			Speed:      speed,
+			Elapsed:    elapsed,
+			Remaining:  0,
+		})
+	}
+
+	return nil
+}
+
+// Open 开启串口连接
+func (c *TjcDisplayClient) Open() error {
+	return c.connect()
+}
+
+// Close 关闭串口连接
 func (c *TjcDisplayClient) Close() error {
 	if c.serialManager != nil && c.serialManager.IsOpen() {
 		return c.serialManager.Close()
