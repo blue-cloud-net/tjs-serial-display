@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/blue-cloud-net/tjc-serial-display/internal/client"
 	"github.com/blue-cloud-net/tjc-serial-display/internal/serial"
+	"github.com/blue-cloud-net/tjc-serial-display/pkg/consts"
 	"github.com/blue-cloud-net/tjc-serial-display/pkg/models"
 )
 
@@ -91,12 +93,12 @@ func handleInfo(args []string) {
 
 	if autoDetect {
 		var err error
-		c, err = autoDetectDevice(baudRate)
+		c, err = autoDetectDevice()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Device found on port: %s\n\n", c.PortName)
+		fmt.Printf("Device found on port: %s (baud: %d)\n\n", c.PortName, c.BaudRate)
 	} else {
 		c = &client.TjcDisplayClient{
 			PortName: portName,
@@ -149,7 +151,7 @@ func handleExec(args []string) {
 
 	if autoDetect {
 		var err error
-		c, err = autoDetectDevice(baudRate)
+		c, err = autoDetectDevice()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -225,12 +227,12 @@ func handleUpgrade(args []string) {
 
 	if autoDetect {
 		var err error
-		c, err = autoDetectDevice(baudRate)
+		c, err = autoDetectDevice()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Device found on port: %s\n", c.PortName)
+		fmt.Printf("Device found on port: %s (baud: %d)\n", c.PortName, c.BaudRate)
 	} else {
 		c = &client.TjcDisplayClient{
 			PortName: portName,
@@ -241,7 +243,7 @@ func handleUpgrade(args []string) {
 
 	fmt.Printf("Upgrading device with file: %s\n", tftFile)
 
-	err := c.Upgrade(tftFile, func(progress *models.UpgradeProgress) {
+	err := c.Upgrade(tftFile, 0, func(progress *models.UpgradeProgress) {
 		bar := progressBar(progress.Percentage, 50)
 		speed := formatBytes(progress.Speed)
 		fmt.Printf("\r[%s] %.1f%% (%s/%s) %s/s",
@@ -262,7 +264,7 @@ func handleUpgrade(args []string) {
 }
 
 // autoDetectDevice 自动检测并连接设备
-func autoDetectDevice(baudRate int) (*client.TjcDisplayClient, error) {
+func autoDetectDevice() (*client.TjcDisplayClient, error) {
 	ports, err := serial.ListPorts()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list ports: %w", err)
@@ -272,21 +274,38 @@ func autoDetectDevice(baudRate int) (*client.TjcDisplayClient, error) {
 		return nil, fmt.Errorf("no serial ports found")
 	}
 
+	fmt.Println("Auto detecting TJC device...")
+	// 遍历所有端口和所有波特率
 	for _, port := range ports {
-		c := &client.TjcDisplayClient{
-			PortName: port,
-			BaudRate: baudRate,
-		}
+		for _, baudRate := range consts.SupportedBaudrate {
+			c := &client.TjcDisplayClient{
+				PortName: port,
+				BaudRate: baudRate,
+				Timeout:  100 * time.Millisecond,
+			}
 
-		// 尝试连接并获取设备信息
-		_, err := c.GetDeviceInfo()
-		if err == nil {
-			return c, nil
+			fmt.Printf("Trying %s @ %d baud...\n", port, baudRate)
+
+			// 尝试连接并获取设备信息
+			_, err := c.GetDeviceInfo()
+			if err == nil {
+				fmt.Println() // 换行
+
+				c.Close()
+				c = &client.TjcDisplayClient{
+					PortName: port,
+					BaudRate: baudRate,
+				}
+
+				return c, nil
+			}
+			c.Close()
+
 		}
-		c.Close()
 	}
 
-	return nil, fmt.Errorf("no TJC device found on any port")
+	fmt.Println() // 换行
+	return nil, fmt.Errorf("no TJC device found on any port with any supported baud rate")
 }
 
 // 辅助函数

@@ -81,6 +81,9 @@ func (c *TjcDisplayClient) connect() error {
 		return c.serialManager.Open()
 	}
 
+	// 退出主动解析模式
+	_ = c.sendCommand("DRAKJHSUYDGBNCJHGJKSHBDN", false)
+
 	return nil
 }
 
@@ -438,6 +441,9 @@ func (c *TjcDisplayClient) sendCommand(cmd string, appendReturnEndBytes bool) er
 		return err
 	}
 
+	// 清理多余数据
+	_, _ = c.serialManager.ReadWithTimeout(50 * time.Millisecond)
+
 	// 解析响应
 	resp, err := parseResponse(resData)
 	if err != nil {
@@ -476,6 +482,9 @@ func (c *TjcDisplayClient) sendCommandAndWaitResult(cmd string, startSymbol bool
 	if err != nil {
 		return nil, err
 	}
+
+	// 清理多余数据
+	_, _ = c.serialManager.ReadWithTimeout(50 * time.Millisecond)
 
 	// 解析响应
 	resp, err := parseResponse(resData)

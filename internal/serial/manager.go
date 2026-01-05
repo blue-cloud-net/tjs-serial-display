@@ -283,20 +283,43 @@ func (spm *SerialPortManager) Write(p []byte) error {
 		return errors.New("invalid data length for write")
 	}
 
-	if spm.port != nil {
-		n, err := spm.port.Write(p)
+	if spm.port == nil {
+		return errors.New("port is not open")
+	}
+
+	// 循环写入，确保所有数据都写入成功（处理部分写入情况）
+	totalWritten := 0
+	startTime := time.Now()
+	writeTimeout := 5 * time.Second
+
+	for totalWritten < len(p) {
+		// 检查是否超时
+		if time.Since(startTime) > writeTimeout {
+			return errors.New("write timeout: unable to write all data")
+		}
+
+		n, err := spm.port.Write(p[totalWritten:])
 		if err != nil {
 			return err
 		}
 
-		if n != len(p) {
-			return errors.New("failed to write all data to serial port")
+		if n == 0 {
+			// 无法写入数据，短暂延迟后重试
+			time.Sleep(10 * time.Millisecond)
+			continue
 		}
 
-		return nil
+		totalWritten += n
+
+		if totalWritten < len(p) {
+			err = spm.port.Drain()
+			if err != nil {
+				return err
+			}
+		}
 	}
 
-	return errors.New("port is not open")
+	return nil
 }
 
 func (spm *SerialPortManager) Flush() error {
