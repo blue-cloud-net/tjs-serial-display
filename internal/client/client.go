@@ -1,0 +1,330 @@
+package client
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"sync"
+
+	"github.com/blue-cloud-net/tjc-serial-display/internal/serial"
+	"github.com/blue-cloud-net/tjc-serial-display/pkg/models"
+)
+
+// 控制命令的起始和结束符
+const (
+	EndStr = "\xFF\xFF\xFF"
+)
+
+var (
+	EndSymbol = []byte(EndStr)
+)
+
+type TjcDisplayClient struct {
+	PortName      string
+	BaudRate      int
+	serialManager *serial.SerialPortManager
+	optLock       sync.Mutex
+}
+
+func (c *TjcDisplayClient) connect() error {
+	if c.serialManager == nil {
+		manager := &serial.SerialPortManager{
+			PortName: c.PortName,
+			BaudRate: c.BaudRate,
+		}
+
+		err := manager.Open()
+
+		if err != nil {
+			return err
+		}
+
+		c.serialManager = manager
+	}
+
+	if !c.serialManager.IsOpen() {
+		return c.serialManager.Open()
+	}
+
+	return nil
+}
+
+// GetDeviceInfo 获取设备信息（示例实现，实际需根据协议解析串口返回数据）
+func (c *TjcDisplayClient) GetDeviceInfo() (*models.DeviceInfo, error) {
+	err := c.connect()
+	if err != nil {
+		return nil, err
+	}
+
+	// 发送connect
+	result, err := c.sendCommandAndWaitResult("connect", false)
+	if err != nil {
+		return nil, err
+	}
+
+	resultStr := string(result)
+	// 以TJC4024T032_011R设备为例，设备返回如下8组数据(每组数据逗号隔开):
+	// comok 1,101-0,TJC4024T032_011R,52,61488,D264B8204F0E1828,16777216
+	// 格式说明:
+	// comok [屏幕类型],[设备地址],[设备型号],[固件版本号],[主控芯片编号],[设备唯一编号],[Flash存储大小]
+
+	return parseDeviceInfo(resultStr)
+}
+
+// parseDeviceInfo 解析设备信息字符串
+func parseDeviceInfo(data string) (*models.DeviceInfo, error) {
+	// 去掉开头的 "comok " 或其他前缀
+	data = strings.TrimSpace(data)
+	if strings.HasPrefix(data, "comok ") {
+		data = strings.TrimPrefix(data, "comok ")
+	} else if strings.HasPrefix(data, "comok") {
+		data = strings.TrimPrefix(data, "comok")
+	}
+
+	data = strings.TrimSpace(data)
+
+	// 按逗号分割
+	parts := strings.Split(data, ",")
+	if len(parts) < 7 {
+		return nil, fmt.Errorf("invalid device info format, expected 7 fields, got %d: %s", len(parts), data)
+	}
+
+	deviceInfo := &models.DeviceInfo{}
+
+	// 解析屏幕类型
+	if screenType, err := strconv.Atoi(strings.TrimSpace(parts[0])); err == nil {
+		deviceInfo.Type = screenType
+	}
+
+	// 设备地址
+	deviceInfo.Address = strings.TrimSpace(parts[1])
+
+	// 设备型号
+	deviceInfo.Model = strings.TrimSpace(parts[2])
+
+	// 固件版本号
+	if version, err := strconv.Atoi(strings.TrimSpace(parts[3])); err == nil {
+		deviceInfo.FirmwareVersion = version
+	}
+
+	// 主控芯片编号
+	if chipNum, err := strconv.Atoi(strings.TrimSpace(parts[4])); err == nil {
+		deviceInfo.MainControlChipNumber = chipNum
+	}
+
+	// 设备唯一编号
+	deviceInfo.Number = strings.TrimSpace(parts[5])
+
+	// Flash 存储大小
+	if flashSize, err := strconv.Atoi(strings.TrimSpace(parts[6])); err == nil {
+		deviceInfo.FlashSize = flashSize
+	}
+
+	return deviceInfo, nil
+}
+
+// GetPage 获取当前页面
+func (c *TjcDisplayClient) GetPage() (int, error) {
+	result, err := c.sendCommandAndWaitResult("sendme", false)
+	if err != nil {
+		return 0, err
+	}
+
+	if len(result) != 1 {
+		return 0, fmt.Errorf("invalid response length for GetPage: %d", len(result))
+	}
+
+	page := int(result[0])
+
+	return page, nil
+}
+
+// JumpPage 跳转到指定页面
+func (c *TjcDisplayClient) JumpPage(page int) error {
+	cmd := []byte(fmt.Sprintf("page %d", page))
+	return c.serialManager.Write(cmd)
+}
+
+// Prints 打印目标的值或者输入内容
+func (c *TjcDisplayClient) Prints(target string) (string, error) {
+	result, err := c.sendCommandAndWaitResult(fmt.Sprintf("print %s", target), true)
+	if err != nil {
+		return "", err
+	}
+
+	return string(result), nil
+}
+
+// ClickUp 模拟弹起目标按钮
+func (c *TjcDisplayClient) ClickUp(target string) error {
+	cmd := []byte(fmt.Sprintf("click %s,0", target))
+	return c.serialManager.Write(cmd)
+}
+
+// ClickDown 模拟按下目标按钮
+func (c *TjcDisplayClient) ClickDown(target string) error {
+	cmd := []byte(fmt.Sprintf("click %s,1", target))
+	return c.serialManager.Write(cmd)
+}
+
+// Hide 隐藏指定目标
+func (c *TjcDisplayClient) Hide(target string) error {
+	cmd := []byte(fmt.Sprintf("vis %s,0", target))
+	return c.serialManager.Write(cmd)
+}
+
+// Show 显示指定目标
+func (c *TjcDisplayClient) Show(target string) error {
+	cmd := []byte(fmt.Sprintf("vis %s,1", target))
+	return c.serialManager.Write(cmd)
+}
+
+func (c *TjcDisplayClient) Close() error {
+	if c.serialManager != nil && c.serialManager.IsOpen() {
+		return c.serialManager.Close()
+	}
+	return nil
+}
+
+func (c *TjcDisplayClient) sendCommand(cmd string, appendReturnEndBytes bool) error {
+	c.optLock.Lock()
+	defer c.optLock.Unlock()
+
+	cmdBytes := append([]byte(cmd), EndSymbol...)
+	if appendReturnEndBytes {
+		cmdBytes = append(append([]byte("printh "), CodeStringData), EndSymbol...)
+	}
+
+	err := c.serialManager.Write(cmdBytes)
+	if err != nil {
+		return err
+	}
+
+	err = c.serialManager.Flush()
+	if err != nil {
+		return err
+	}
+
+	// 读取响应
+	resData, err := c.serialManager.ReadUntil(EndSymbol)
+	if err != nil {
+		return err
+	}
+
+	// 解析响应
+	resp, err := parseResponse(resData)
+	if err != nil {
+		return fmt.Errorf("parse response failed: %w", err)
+	}
+
+	// 检查是否有错误
+	if respErr := resp.toError(); respErr != nil {
+		return respErr
+	}
+
+	return nil
+}
+
+func (c *TjcDisplayClient) sendCommandAndWaitResult(cmd string, startSymbol bool) ([]byte, error) {
+	c.optLock.Lock()
+	defer c.optLock.Unlock()
+
+	cmdBytes := append([]byte(cmd), EndSymbol...)
+	if startSymbol {
+		cmdBytes = append(append([]byte("printh "), CodeStringData), EndSymbol...)
+	}
+
+	err := c.serialManager.Write(cmdBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	err = c.serialManager.Flush()
+	if err != nil {
+		return nil, err
+	}
+
+	// 读取响应
+	resData, err := c.serialManager.ReadUntil(EndSymbol)
+	if err != nil {
+		return nil, err
+	}
+
+	// 解析响应
+	resp, err := parseResponse(resData)
+	if err != nil {
+		return nil, fmt.Errorf("parse response failed: %w", err)
+	}
+
+	// 检查是否有错误
+	if respErr := resp.toError(); respErr != nil {
+		return nil, respErr
+	}
+
+	return resp.Data, nil
+}
+
+// parseResponse 解析串口屏返回数据
+func parseResponse(data []byte) (*Response, error) {
+	if len(data) < 1 {
+		return nil, fmt.Errorf("Invalid response length: %d", len(data))
+	}
+
+	resp := &Response{
+		RawData: data,
+		Code:    data[0],
+	}
+
+	// 根据第一个字节判断响应类型
+	switch data[0] {
+	case CodeSuccess:
+		resp.Type = ResponseTypeSuccess
+	case CodeInvalidInstruction,
+		CodeInvalidComponentID,
+		CodeInvalidPageID,
+		CodeInvalidPictureID,
+		CodeInvalidFontID,
+		CodeFileOperationFailed,
+		CodeCRCCheckFailed,
+		CodeInvalidBaudrate,
+		CodeInvalidCurveID,
+		CodeInvalidVariableName,
+		CodeInvalidVariableOp,
+		CodeAssignmentFailed,
+		CodeEEPROMFailed,
+		CodeInvalidParamCount,
+		CodeIOFailed,
+		CodeEscapeCharError,
+		CodeVariableNameTooLong,
+		CodeSerialBufferOverflow:
+		resp.Type = ResponseTypeError
+	case CodeTouchEvent,
+		CodePageID,
+		CodeTouchCoordinate,
+		CodeSleepTouch,
+		CodeAutoSleep,
+		CodeAutoWake,
+		CodeStartupSuccess,
+		CodeStartSDUpgrade,
+		CodeTransparentReady,
+		CodeTransparentDone:
+		resp.Type = ResponseTypeEvent
+		// 提取事件数据（去掉第一个字节）
+		if len(data) > 1 {
+			resp.Data = data[1:len(data)]
+		}
+	case CodeStringData,
+		CodeNumberData:
+		resp.Type = ResponseTypeData
+		// 提取数据（去掉第一个字节和结束符）
+		if len(data) > 1 {
+			resp.Data = data[1:len(data)]
+		}
+	default:
+		// 未知响应码，可能是数据返回
+		resp.Type = ResponseTypeData
+		resp.Data = data
+	}
+
+	return resp, nil
+}

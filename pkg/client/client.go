@@ -9,11 +9,12 @@ import (
 type DisplayClient interface {
 	// 获取设备信息
 	GetDeviceInfo() (*models.DeviceInfo, error)
-
+	// 获取当前页面
+	GetPage() (int, error)
 	// 跳转到指定页面
 	JumpPage(page int) error
 	// 打印目标的值或者输入内容
-	Prints(target string) error
+	Prints(target string) (string, error)
 	// 模拟弹起目标按钮
 	ClickUp(target string) error
 	// 模拟按下目标按钮
