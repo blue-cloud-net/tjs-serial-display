@@ -23,6 +23,10 @@ type DisplayClient interface {
 	Hide(target string) error
 	// 显示指定目标
 	Show(target string) error
+	// 执行原始 TJC 命令
+	ExecuteCommand(cmd string) error
+	// 升级面板程序
+	Upgrade(programPath string, progressCallback models.UpgradeProgressCallback) error
 }
 
 func CreateClient(portName string, baudRate int) DisplayClient {
