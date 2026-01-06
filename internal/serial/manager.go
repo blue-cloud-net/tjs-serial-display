@@ -3,6 +3,7 @@ package serial
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"time"
 
@@ -90,7 +91,6 @@ func (spm *SerialPortManager) SetBaudRate(baudRate int) error {
 	spm.BaudRate = baudRate
 
 	if spm.IsOpen() {
-
 		err := spm.port.SetMode(&serial.Mode{
 			BaudRate: baudRate,
 			Parity:   spm.Parity,
@@ -99,6 +99,60 @@ func (spm *SerialPortManager) SetBaudRate(baudRate int) error {
 		})
 		if err != nil {
 			return errors.New("failed to set new baud rate on serial port")
+		}
+	}
+
+	return nil
+}
+
+func (spm *SerialPortManager) SetParity(parity serial.Parity) error {
+	spm.Parity = parity
+
+	if spm.IsOpen() {
+		err := spm.port.SetMode(&serial.Mode{
+			BaudRate: spm.BaudRate,
+			Parity:   parity,
+			DataBits: spm.DataBits,
+			StopBits: spm.StopBits,
+		})
+		if err != nil {
+			return errors.New("failed to set new parity on serial port")
+		}
+	}
+
+	return nil
+}
+
+func (spm *SerialPortManager) SetDataBits(dataBits int) error {
+	spm.DataBits = dataBits
+
+	if spm.IsOpen() {
+		err := spm.port.SetMode(&serial.Mode{
+			BaudRate: spm.BaudRate,
+			Parity:   spm.Parity,
+			DataBits: dataBits,
+			StopBits: spm.StopBits,
+		})
+		if err != nil {
+			return errors.New("failed to set new data bits on serial port")
+		}
+	}
+
+	return nil
+}
+
+func (spm *SerialPortManager) SetStopBits(stopBits serial.StopBits) error {
+	spm.StopBits = stopBits
+
+	if spm.IsOpen() {
+		err := spm.port.SetMode(&serial.Mode{
+			BaudRate: spm.BaudRate,
+			Parity:   spm.Parity,
+			DataBits: spm.DataBits,
+			StopBits: stopBits,
+		})
+		if err != nil {
+			return errors.New("failed to set new stop bits on serial port")
 		}
 	}
 
@@ -158,7 +212,7 @@ func (spm *SerialPortManager) ReadExactly(n int) ([]byte, error) {
 	}
 
 	if totalRead < n {
-		return buf[:totalRead], errors.New("incomplete read: expected " + string(rune(n)) + " bytes, got " + string(rune(totalRead)))
+		return buf[:totalRead], fmt.Errorf("incomplete read: expected %d bytes, got %d", n, totalRead)
 	}
 
 	return buf, nil
