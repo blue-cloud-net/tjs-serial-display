@@ -9,6 +9,11 @@ import (
 type DisplayClient interface {
 	// 获取设备信息
 	GetDeviceInfo() (*models.DeviceInfo, error)
+	// 执行原始 TJC 命令
+	ExecuteCommand(cmd string) ([]byte, error)
+	// 升级面板程序
+	Upgrade(programPath string, baudRate int, progressCallback models.UpgradeProgressCallback) error
+
 	// 获取当前页面
 	GetPage() (int, error)
 	// 跳转到指定页面
@@ -23,10 +28,6 @@ type DisplayClient interface {
 	Hide(target string) error
 	// 显示指定目标
 	Show(target string) error
-	// 执行原始 TJC 命令
-	ExecuteCommand(cmd string) error
-	// 升级面板程序
-	Upgrade(programPath string, baudRate int, progressCallback models.UpgradeProgressCallback) error
 }
 
 func CreateClient(portName string, baudRate int) DisplayClient {

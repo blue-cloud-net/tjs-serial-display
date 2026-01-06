@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -38,25 +39,13 @@ func (c *TjcDisplayClient) connect() error {
 	}
 
 	// 检查是否存在指定的串口
-	found := false
-	for _, port := range ports {
-		if port == c.PortName {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(ports, c.PortName)
 	if !found {
 		return fmt.Errorf("serial port %s not found", c.PortName)
 	}
 
 	// 检查波特率是否支持
-	baudrateSupported := false
-	for _, br := range consts.SupportedBaudrate {
-		if c.BaudRate == br {
-			baudrateSupported = true
-			break
-		}
-	}
+	baudrateSupported := slices.Contains(consts.SupportedBaudrate, c.BaudRate)
 	if !baudrateSupported {
 		return fmt.Errorf("baud rate %d is not supported", c.BaudRate)
 	}
@@ -247,13 +236,13 @@ func (c *TjcDisplayClient) Show(target string) error {
 }
 
 // ExecuteCommand 执行原始 TJC 命令
-func (c *TjcDisplayClient) ExecuteCommand(cmd string) error {
+func (c *TjcDisplayClient) ExecuteCommand(cmd string) ([]byte, error) {
 	err := c.connect()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return c.sendCommand(cmd, false)
+	return c.sendCommandAndWaitRawResult(cmd, false)
 }
 
 // Upgrade 升级面板程序
@@ -498,6 +487,34 @@ func (c *TjcDisplayClient) sendCommandAndWaitResult(cmd string, startSymbol bool
 	}
 
 	return resp.Data, nil
+}
+
+func (c *TjcDisplayClient) sendCommandAndWaitRawResult(cmd string, startSymbol bool) ([]byte, error) {
+	c.optLock.Lock()
+	defer c.optLock.Unlock()
+
+	cmdBytes := append([]byte(cmd), EndSymbol...)
+	if startSymbol {
+		cmdBytes = append(append([]byte("printh "), consts.CodeStringData), EndSymbol...)
+	}
+
+	err := c.serialManager.Write(cmdBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	err = c.serialManager.Flush()
+	if err != nil {
+		return nil, err
+	}
+
+	// 读取响应
+	resData, err := c.serialManager.Read()
+	if err != nil {
+		return nil, err
+	}
+
+	return resData, nil
 }
 
 // parseResponse 解析串口屏返回数据

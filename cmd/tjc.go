@@ -183,12 +183,12 @@ func handleExec(args []string) {
 		fmt.Printf("Current page: %d\n", page)
 	} else {
 		// 其他命令直接执行
-		err := c.ExecuteCommand(cmdString)
+		result, err := c.ExecuteCommand(cmdString)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error executing command: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("Command executed successfully")
+		fmt.Printf("Command executed successfully, response: %X(%s)\n", result, string(result))
 	}
 }
 
